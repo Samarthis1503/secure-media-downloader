@@ -73,12 +73,14 @@ def get_formats():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
             formats = []
+            available_format_ids = set()
             for f in info.get('formats', []) if isinstance(info, dict) and isinstance(info.get('formats', []), list) else []:
                 if not isinstance(f, dict) or not f.get('url'):
                     continue
-                # Ensure all fields are correct type
+                format_id = f.get('format_id')
+                available_format_ids.add(format_id)
                 formats.append({
-                    'format_id': f.get('format_id'),
+                    'format_id': format_id,
                     'ext': f.get('ext'),
                     'resolution': f.get('resolution') or f.get('height'),
                     'acodec': f.get('acodec'),
@@ -86,6 +88,8 @@ def get_formats():
                     'filesize': f.get('filesize') or f.get('filesize_approx'),
                     'format_note': f.get('format_note') if isinstance(f.get('format_note'), str) else '',
                 })
+            # Store available formats in session for validation during download
+            session['available_formats'] = list(available_format_ids)
             return jsonify({
                 'title': info.get('title') if isinstance(info, dict) else None,
                 'thumbnail': info.get('thumbnail') if isinstance(info, dict) else None,
@@ -147,6 +151,10 @@ def download():
         return 'Missing parameters', 400
     try:
         if platform in ['youtube', 'facebook']:
+            # Validate format_id
+            available_format_ids = session.get('available_formats', [])
+            if format_id != 'mp3' and format_id not in available_format_ids:
+                return f'Error: Requested format {format_id} is not available for this video.', 400
             ydl_opts = {
                 'format': 'bestaudio/best' if format_id == 'mp3' else format_id,
                 'outtmpl': 'downloads/%(id)s.%(ext)s',
@@ -158,7 +166,7 @@ def download():
             }
             cookie_path = COOKIE_PATHS.get(platform, '')
             if cookie_path and os.path.exists(cookie_path):
-                ydl_opts['cookiefile'] = cookie_path
+                ydl_opts['cookiefile'] = cookie_path  # type: ignore
             if format_id == 'mp3':
                 ydl_opts['postprocessors'] = [{
                     'key': 'FFmpegExtractAudio',
