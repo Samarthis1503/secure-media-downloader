@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <style>
+        table { border-collapse: collapse; width: 60%; margin: 20px auto; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #f4f4f4; }
+        .login-required { color: red; font-weight: bold; }
+        .ok { color: green; }
+    </style>
+</head>
+<body>
+    <h2 style="text-align:center;">Admin Dashboard</h2>
+    <table>
+        <tr>
+            <th>Platform</th>
+            <th>Login Required</th>
+            <th>Cookie Expiry</th>
+        </tr>
+        {% for platform, info in status.items() %}
+        <tr>
+            <td>{{ platform|capitalize }}</td>
+            <td class="{{ 'login-required' if info.login_required else 'ok' }}">
+                {{ 'Yes' if info.login_required else 'No' }}
+            </td>
+            <td>
+                {% if info.cookie_expiry %}
+                    {{ info.cookie_expiry|datetimeformat }}
+                {% else %}
+                    Unknown
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html> 

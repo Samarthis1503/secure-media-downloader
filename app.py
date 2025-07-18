@@ -4,6 +4,8 @@ import instaloader
 import os
 import uuid
 import logging
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -19,6 +21,16 @@ COOKIE_PATHS = {
 }
 
 logging.basicConfig(level=logging.INFO)
+
+def datetimeformat(value):
+    if not value:
+        return "Unknown"
+    try:
+        return datetime.fromtimestamp(int(value)).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return str(value)
+
+app.jinja_env.filters['datetimeformat'] = datetimeformat
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -167,6 +179,15 @@ def facebook_video():
     except Exception as e:
         logging.exception("Error downloading Facebook Video")
         return render_template('error.html', error=f"Error: {str(e)}")
+
+@app.route('/admin')
+def admin_dashboard():
+    try:
+        with open('automation/status.json', 'r') as f:
+            status = json.load(f)
+    except Exception:
+        status = {}
+    return render_template('admin_dashboard.html', status=status)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)

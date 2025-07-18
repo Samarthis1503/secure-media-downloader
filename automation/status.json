@@ -1,0 +1,14 @@
+{
+  "youtube": {
+    "login_required": false,
+    "cookie_expiry": -1
+  },
+  "facebook": {
+    "login_required": true,
+    "cookie_expiry": null
+  },
+  "instagram": {
+    "login_required": true,
+    "cookie_expiry": null
+  }
+}
