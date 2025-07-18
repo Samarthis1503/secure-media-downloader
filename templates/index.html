@@ -1,14 +1,170 @@
 <!DOCTYPE html>
 <html>
-<head><title>Secure Media Downloader</title></head>
+<head>
+    <title>Secure Media Downloader</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f7f7; }
+        .container { max-width: 600px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px #ccc; }
+        h1 { text-align: center; }
+        .platforms { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .platform-btn { flex: 1; margin: 0 5px; padding: 12px; border: none; border-radius: 5px; background: #eee; cursor: pointer; font-size: 16px; transition: background 0.2s; }
+        .platform-btn.active, .platform-btn:hover { background: #007bff; color: #fff; }
+        .input-row { display: flex; margin-bottom: 20px; }
+        .input-row input { flex: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px 0 0 5px; }
+        .input-row button { padding: 10px 20px; border: none; border-radius: 0 5px 5px 0; background: #007bff; color: #fff; font-size: 16px; cursor: pointer; }
+        .video-info { margin: 20px 0; text-align: center; }
+        .video-info img { max-width: 100%; border-radius: 8px; margin-bottom: 10px; }
+        .formats-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .formats-table th, .formats-table td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        .formats-table th { background: #f4f4f4; }
+        .progress-bar { width: 100%; background: #eee; border-radius: 5px; overflow: hidden; margin-bottom: 10px; }
+        .progress-bar-inner { height: 18px; background: #28a745; width: 0; transition: width 0.3s; }
+        .success-msg { color: #28a745; font-size: 18px; text-align: center; margin-top: 10px; }
+        .tick { color: #28a745; font-size: 32px; vertical-align: middle; }
+    </style>
+</head>
 <body>
-<h1>Secure Media Downloader</h1>
-<ul>
-  <li><form method="post" action="/youtube-mp3"><input type="text" name="url" placeholder="YouTube to MP3 URL" required><button type="submit">Download MP3</button></form></li>
-  <li><form method="post" action="/youtube-video"><input type="text" name="url" placeholder="YouTube Video URL" required><button type="submit">Download Video</button></form></li>
-  <li><form method="post" action="/instagram-reel"><input type="text" name="url" placeholder="Instagram Reel URL" required><button type="submit">Download Reel</button></form></li>
-  <li><form method="post" action="/facebook-video"><input type="text" name="url" placeholder="Facebook Video URL" required><button type="submit">Download Video</button></form></li>
-</ul>
-<a href="/">Logout</a>
+<div class="container">
+    <h1>Secure Media Downloader</h1>
+    <div class="platforms">
+        <button class="platform-btn active" id="yt-btn">YouTube</button>
+        <button class="platform-btn" id="ig-btn">Instagram</button>
+        <button class="platform-btn" id="fb-btn">Facebook</button>
+    </div>
+    <div class="input-row">
+        <input type="text" id="video-url" placeholder="Paste video URL here..." />
+        <button id="fetch-info">Fetch Info</button>
+    </div>
+    <div id="video-info" class="video-info" style="display:none;"></div>
+    <form id="download-form" style="display:none;">
+        <table class="formats-table" id="formats-table">
+            <thead>
+                <tr><th>Select</th><th>Type</th><th>Resolution</th><th>Audio</th><th>Video</th><th>Size</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <div style="text-align:center;">
+            <button type="submit" id="download-btn">Download</button>
+        </div>
+    </form>
+    <div class="progress-bar" id="progress-bar" style="display:none;">
+        <div class="progress-bar-inner" id="progress-bar-inner"></div>
+    </div>
+    <div class="success-msg" id="success-msg" style="display:none;">
+        <span class="tick">&#10003;</span> Video downloaded successfully!
+    </div>
+    <a href="/logout" style="display:block;text-align:center;margin-top:20px;">Logout</a>
+</div>
+<script>
+let selectedPlatform = 'youtube';
+let formats = [];
+let selectedFormat = null;
+
+function setPlatform(platform) {
+    selectedPlatform = platform;
+    document.querySelectorAll('.platform-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(platform.substring(0,2)+'-btn').classList.add('active');
+    document.getElementById('video-info').style.display = 'none';
+    document.getElementById('download-form').style.display = 'none';
+    document.getElementById('success-msg').style.display = 'none';
+    document.getElementById('progress-bar').style.display = 'none';
+    document.getElementById('video-url').value = '';
+}
+document.getElementById('yt-btn').onclick = () => setPlatform('youtube');
+document.getElementById('ig-btn').onclick = () => setPlatform('instagram');
+document.getElementById('fb-btn').onclick = () => setPlatform('facebook');
+
+document.getElementById('fetch-info').onclick = async function() {
+    const url = document.getElementById('video-url').value.trim();
+    if (!url) return alert('Please enter a video URL.');
+    document.getElementById('video-info').style.display = 'none';
+    document.getElementById('download-form').style.display = 'none';
+    document.getElementById('success-msg').style.display = 'none';
+    document.getElementById('progress-bar').style.display = 'none';
+    document.getElementById('formats-table').querySelector('tbody').innerHTML = '';
+    try {
+        const res = await fetch('/get-formats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, platform: selectedPlatform })
+        });
+        const data = await res.json();
+        if (data.error) return alert('Error: ' + data.error);
+        formats = data.formats || [];
+        selectedFormat = null;
+        // Video preview
+        let html = '';
+        if (data.thumbnail) html += `<img src="${data.thumbnail}" alt="thumbnail" />`;
+        if (data.title) html += `<div><b>${data.title}</b></div>`;
+        if (data.uploader) html += `<div>By: ${data.uploader}</div>`;
+        if (data.duration) html += `<div>Duration: ${Math.floor(data.duration/60)}:${('0'+(data.duration%60)).slice(-2)}</div>`;
+        document.getElementById('video-info').innerHTML = html;
+        document.getElementById('video-info').style.display = 'block';
+        // Formats table
+        let rows = '';
+        formats.forEach((f, i) => {
+            rows += `<tr>
+                <td><input type="radio" name="format" value="${f.format_id}" ${i===0?'checked':''}></td>
+                <td>${f.ext}${f.format_note && f.format_note!=='default' ? ' ('+f.format_note+')' : ''}</td>
+                <td>${f.resolution||'-'}</td>
+                <td>${f.acodec!=='none'?'Yes':'No'}</td>
+                <td>${f.vcodec!=='none'?'Yes':'No'}</td>
+                <td>${f.filesize ? (f.filesize/1024/1024).toFixed(2)+' MB' : '-'}</td>
+            </tr>`;
+        });
+        // MP3 option
+        rows += `<tr>
+            <td><input type="radio" name="format" value="mp3"></td>
+            <td>mp3 (audio only)</td>
+            <td>-</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td>-</td>
+        </tr>`;
+        document.getElementById('formats-table').querySelector('tbody').innerHTML = rows;
+        document.getElementById('download-form').style.display = 'block';
+    } catch (e) {
+        alert('Failed to fetch video info.');
+    }
+};
+
+document.getElementById('download-form').onsubmit = async function(e) {
+    e.preventDefault();
+    const url = document.getElementById('video-url').value.trim();
+    const format = document.querySelector('input[name="format"]:checked').value;
+    document.getElementById('progress-bar').style.display = 'block';
+    document.getElementById('progress-bar-inner').style.width = '0%';
+    document.getElementById('success-msg').style.display = 'none';
+    // Use fetch with progress (simulate for now)
+    const res = await fetch('/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, platform: selectedPlatform, format })
+    });
+    if (res.status !== 200) {
+        alert('Download failed.');
+        document.getElementById('progress-bar').style.display = 'none';
+        return;
+    }
+    // Simulate progress bar (since fetch does not support progress natively)
+    let percent = 0;
+    const interval = setInterval(() => {
+        percent += 10;
+        document.getElementById('progress-bar-inner').style.width = percent + '%';
+        if (percent >= 100) clearInterval(interval);
+    }, 100);
+    // Download file
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = window.URL.createObjectURL(blob);
+    a.download = url.split('/').pop() + (format==='mp3'?'.mp3':'.mp4');
+    a.click();
+    document.getElementById('progress-bar-inner').style.width = '100%';
+    setTimeout(() => {
+        document.getElementById('progress-bar').style.display = 'none';
+        document.getElementById('success-msg').style.display = 'block';
+    }, 500);
+};
+</script>
 </body>
 </html>
