@@ -5,12 +5,17 @@ import os
 import uuid
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a stronger secret key
-PASSWORD = 'samarth123'  # Shared password
+app.secret_key = 'your_secret_key'
+PASSWORD = 'samarth123'
 
-# Ensure download folders exist
+# Ensure required folders exist
 os.makedirs("downloads", exist_ok=True)
-os.makedirs("downloads/reel", exist_ok=True)
+
+# Cookie paths
+COOKIE_PATHS = {
+    'youtube': 'cookies/youtube_cookies.txt',
+    'facebook': 'cookies/facebook_cookies.txt',
+}
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -18,8 +23,7 @@ def login():
         if request.form['password'] == PASSWORD:
             session['logged_in'] = True
             return redirect(url_for('index'))
-        else:
-            return render_template('login.html', error='Wrong password')
+        return render_template('login.html', error='Wrong password')
     return render_template('login.html')
 
 @app.route('/home')
@@ -36,44 +40,68 @@ def logout():
 @app.route('/youtube-mp3', methods=['POST'])
 def youtube_mp3():
     url = request.form['url']
+    file_id = str(uuid.uuid4())
+    output_path = f"downloads/{file_id}.mp3"
+
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'outtmpl': f'downloads/{file_id}.%(ext)s',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
         }],
         'quiet': True,
-        'cookiefile': 'cookies/youtube_cookies.txt'
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.download([url])
-        filename = ydl.prepare_filename(ydl.extract_info(url, download=False)).replace('.webm', '.mp3').replace('.m4a', '.mp3')
-    return send_file(filename, as_attachment=True)
+
+    if os.path.exists(COOKIE_PATHS['youtube']):
+        ydl_opts['cookiefile'] = COOKIE_PATHS['youtube']
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return send_file(output_path, as_attachment=True)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 @app.route('/youtube-video', methods=['POST'])
 def youtube_video():
     url = request.form['url']
+    file_id = str(uuid.uuid4())
+    output_path = f"downloads/{file_id}.mp4"
+
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'outtmpl': output_path,
         'quiet': True,
-        'cookiefile': 'cookies/youtube_cookies.txt'
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.download([url])
-        filename = ydl.prepare_filename(ydl.extract_info(url, download=False))
-    return send_file(filename, as_attachment=True)
+
+    if os.path.exists(COOKIE_PATHS['youtube']):
+        ydl_opts['cookiefile'] = COOKIE_PATHS['youtube']
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return send_file(output_path, as_attachment=True)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 @app.route('/instagram-reel', methods=['POST'])
 def instagram_reel():
     url = request.form['url']
     shortcode = url.strip('/').split("/")[-1]
-    L = instaloader.Instaloader(dirname_pattern='downloads/reel', save_metadata=False)
+    L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
+
     try:
-        L.load_session_from_file("USERNAME", filename="cookies/instagram_cookies.txt")
         post = instaloader.Post.from_shortcode(L.context, shortcode)
-        L.download_post(post, target='')
+        L.download_post(post, target='reel')
         for file in os.listdir("downloads/reel"):
             if file.endswith(".mp4"):
                 return send_file(f"downloads/reel/{file}", as_attachment=True)
@@ -84,17 +112,28 @@ def instagram_reel():
 @app.route('/facebook-video', methods=['POST'])
 def facebook_video():
     url = request.form['url']
+    file_id = str(uuid.uuid4())
+    output_path = f"downloads/{file_id}.mp4"
+
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'outtmpl': output_path,
         'quiet': True,
-        'cookiefile': 'cookies/facebook_cookies.txt'
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.download([url])
-        filename = ydl.prepare_filename(ydl.extract_info(url, download=False))
-    return send_file(filename, as_attachment=True)
+
+    if os.path.exists(COOKIE_PATHS['facebook']):
+        ydl_opts['cookiefile'] = COOKIE_PATHS['facebook']
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return send_file(output_path, as_attachment=True)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
