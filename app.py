@@ -3,6 +3,7 @@ import yt_dlp
 import instaloader
 import os
 import uuid
+import logging
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -16,6 +17,8 @@ COOKIE_PATHS = {
     'youtube': 'cookies/youtube_cookies.txt',
     'facebook': 'cookies/facebook_cookies.txt',
 }
+
+logging.basicConfig(level=logging.INFO)
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -63,9 +66,13 @@ def youtube_mp3():
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
+        if not os.path.exists(output_path):
+            logging.error(f"File not found after download: {output_path}")
+            return render_template('error.html', error="Download failed: file not found.")
         return send_file(output_path, as_attachment=True)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logging.exception("Error downloading YouTube MP3")
+        return render_template('error.html', error=f"Error: {str(e)}")
 
 @app.route('/youtube-video', methods=['POST'])
 def youtube_video():
@@ -89,25 +96,47 @@ def youtube_video():
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
+        if not os.path.exists(output_path):
+            logging.error(f"File not found after download: {output_path}")
+            return render_template('error.html', error="Download failed: file not found.")
         return send_file(output_path, as_attachment=True)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logging.exception("Error downloading YouTube Video")
+        return render_template('error.html', error=f"Error: {str(e)}")
 
 @app.route('/instagram-reel', methods=['POST'])
 def instagram_reel():
     url = request.form['url']
     shortcode = url.strip('/').split("/")[-1]
     L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
-
+    session_file = 'cookies/instagram_cookies.txt'
     try:
+        # Try to load session if available
+        if os.path.exists(session_file):
+            try:
+                # Try to extract username from cookies file (Netscape format)
+                with open(session_file, 'r') as f:
+                    for line in f:
+                        if 'ds_user_id' in line:
+                            username = line.strip().split('\t')[-1]
+                            break
+                    else:
+                        username = None
+                if username:
+                    L.load_session_from_file(username, session_file)
+                    logging.info(f"Loaded Instagram session for {username}")
+            except Exception as e:
+                logging.warning(f"Could not load Instagram session: {e}")
         post = instaloader.Post.from_shortcode(L.context, shortcode)
         L.download_post(post, target='reel')
         for file in os.listdir("downloads/reel"):
             if file.endswith(".mp4"):
                 return send_file(f"downloads/reel/{file}", as_attachment=True)
-        return "Video not found."
+        logging.error("Video not found after download.")
+        return render_template('error.html', error="Video not found.")
     except Exception as e:
-        return f"Error: {str(e)}"
+        logging.exception("Error downloading Instagram Reel")
+        return render_template('error.html', error=f"Error: {str(e)}")
 
 @app.route('/facebook-video', methods=['POST'])
 def facebook_video():
@@ -131,9 +160,13 @@ def facebook_video():
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
+        if not os.path.exists(output_path):
+            logging.error(f"File not found after download: {output_path}")
+            return render_template('error.html', error="Download failed: file not found.")
         return send_file(output_path, as_attachment=True)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logging.exception("Error downloading Facebook Video")
+        return render_template('error.html', error=f"Error: {str(e)}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
