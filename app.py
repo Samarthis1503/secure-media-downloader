@@ -126,7 +126,6 @@ def get_formats():
                     'filesize': f.get('filesize') or f.get('filesize_approx'),
                     'format_note': f.get('format_note') if isinstance(f.get('format_note'), str) else '',
                 })
-            # Store available formats in session for validation during download
             session['available_formats'] = list(available_format_ids)
             return jsonify({
                 'title': info.get('title') if isinstance(info, dict) else None,
@@ -140,14 +139,16 @@ def get_formats():
             import instaloader
             shortcode = url.strip('/').split('/')[-1]
             L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
-            if os.path.exists(INSTALOADER_SESSION_FILE):
-                try:
-                    L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
-                except Exception as e:
-                    return jsonify({'error': f'Failed to load Instagram session: {str(e)}'}), 400
-            else:
-                return jsonify({'error': 'Instagram session file not found. Please generate it using Instaloader and upload to cookies/instagram_session.'}), 400
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            try:
+                L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
+            except Exception as e:
+                return jsonify({'error': f'Failed to load Instagram session: {str(e)}'}), 400
+
+            try:
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+            except Exception as e:
+                return jsonify({'error': f'Failed to fetch Instagram post: {str(e)}'}), 500
+
             video_url = getattr(post, 'video_url', None)
             title = getattr(post, 'title', None) or 'Instagram Reel'
             thumbnail_url = getattr(post, 'url', None)
@@ -230,31 +231,35 @@ def download():
             import instaloader
             shortcode = url.strip('/').split('/')[-1]
             L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
-            if os.path.exists(INSTALOADER_SESSION_FILE):
-                try:
-                    L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
-                except Exception as e:
-                    return f'Failed to load Instagram session: {str(e)}', 400
-            else:
-                return 'Instagram session file not found. Please generate it using Instaloader and upload to cookies/instagram_session.', 400
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            try:
+                L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
+            except Exception as e:
+                return f'Failed to load Instagram session: {str(e)}', 400
+
+            try:
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+            except Exception as e:
+                return f'Failed to fetch Instagram post: {str(e)}', 500
+
             video_url = getattr(post, 'video_url', None)
             if not video_url:
                 return 'Video URL not found', 404
+
             import requests
             r = requests.get(video_url, stream=True)
             ext = 'mp4'
-            import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         tmp.write(chunk)
                 tmp_path = tmp.name
+
             if format_id == 'mp3':
                 import subprocess
                 mp3_path = tmp_path.replace('.mp4', '.mp3')
                 subprocess.run(['ffmpeg', '-i', tmp_path, '-vn', '-ab', '128k', '-ar', '44100', '-y', mp3_path])
                 os.remove(tmp_path)
+
                 def generate():
                     with open(mp3_path, 'rb') as f:
                         while True:
@@ -263,6 +268,7 @@ def download():
                                 break
                             yield chunk
                     os.remove(mp3_path)
+
                 return Response(generate(), mimetype='audio/mpeg', headers={
                     'Content-Disposition': f'attachment; filename="instagram_reel.mp3"'
                 })
@@ -275,6 +281,7 @@ def download():
                                 break
                             yield chunk
                     os.remove(tmp_path)
+
                 return Response(generate(), mimetype='video/mp4', headers={
                     'Content-Disposition': f'attachment; filename="instagram_reel.mp4"'
                 })
