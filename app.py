@@ -56,8 +56,8 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-INSTALOADER_SESSION_USER = 'YOUR_INSTAGRAM_USERNAME'  # <-- Replace with your Instagram username
-INSTALOADER_SESSION_FILE = 'cookies/instagram_session'  # <-- Place your Instaloader session file here
+INSTALOADER_SESSION_USER = 'damnnnsammy'
+INSTALOADER_SESSION_FILE = 'cookies/instagram_session'
 
 @app.route('/get-formats', methods=['POST'])
 def get_formats():
@@ -137,34 +137,22 @@ def get_formats():
                 'webpage_url': info.get('webpage_url') if isinstance(info, dict) else None,
             })
         elif platform == 'instagram':
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-                context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
-                page = context.new_page()
-                page.goto(url)
-                page.wait_for_load_state('networkidle')
-                # Try to find video element
+            import instaloader
+            shortcode = url.strip('/').split('/')[-1]
+            L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
+            if os.path.exists(INSTALOADER_SESSION_FILE):
                 try:
-                    video = page.query_selector('video')
-                    video_url = video.get_attribute('src') if video else None
-                except Exception:
-                    video_url = None
-                # Try to get thumbnail and title
-                try:
-                    thumbnail = page.query_selector('meta[property="og:image"]')
-                    thumbnail_url = thumbnail.get_attribute('content') if thumbnail else None
-                except Exception:
-                    thumbnail_url = None
-                try:
-                    title = page.query_selector('meta[property="og:title"]')
-                    title_text = title.get_attribute('content') if title else 'Instagram Reel'
-                except Exception:
-                    title_text = 'Instagram Reel'
-                browser.close()
-            if not video_url:
-                return jsonify({'error': 'Could not extract video URL from Instagram.'}), 400
+                    L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
+                except Exception as e:
+                    return jsonify({'error': f'Failed to load Instagram session: {str(e)}'}), 400
+            else:
+                return jsonify({'error': 'Instagram session file not found. Please generate it using Instaloader and upload to cookies/instagram_session.'}), 400
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            video_url = getattr(post, 'video_url', None)
+            title = getattr(post, 'title', None) or 'Instagram Reel'
+            thumbnail_url = getattr(post, 'url', None)
             return jsonify({
-                'title': title_text,
+                'title': title,
                 'thumbnail': thumbnail_url,
                 'formats': [{
                     'format_id': 'default',
@@ -176,7 +164,7 @@ def get_formats():
                     'format_note': 'Instagram default',
                 }],
                 'duration': None,
-                'uploader': None,
+                'uploader': getattr(post, 'owner_username', None),
                 'webpage_url': url,
                 'video_url': video_url,
             })
@@ -239,18 +227,18 @@ def download():
                 'Content-Disposition': f'attachment; filename="{file_id}.{ext}"'
             })
         elif platform == 'instagram':
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-                context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
-                page = context.new_page()
-                page.goto(url)
-                page.wait_for_load_state('networkidle')
+            import instaloader
+            shortcode = url.strip('/').split('/')[-1]
+            L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
+            if os.path.exists(INSTALOADER_SESSION_FILE):
                 try:
-                    video = page.query_selector('video')
-                    video_url = video.get_attribute('src') if video else None
-                except Exception:
-                    video_url = None
-                browser.close()
+                    L.load_session_from_file(INSTALOADER_SESSION_USER, INSTALOADER_SESSION_FILE)
+                except Exception as e:
+                    return f'Failed to load Instagram session: {str(e)}', 400
+            else:
+                return 'Instagram session file not found. Please generate it using Instaloader and upload to cookies/instagram_session.', 400
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            video_url = getattr(post, 'video_url', None)
             if not video_url:
                 return 'Video URL not found', 404
             import requests
