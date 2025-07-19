@@ -1,4 +1,5 @@
 Flask
+yt_dlp
 instaloader
 requests
 selenium
