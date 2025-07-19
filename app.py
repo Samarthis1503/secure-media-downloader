@@ -138,7 +138,7 @@ def get_formats():
             })
         elif platform == 'instagram':
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
                 context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
                 page = context.new_page()
                 page.goto(url)
@@ -240,7 +240,7 @@ def download():
             })
         elif platform == 'instagram':
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
                 context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
                 page = context.new_page()
                 page.goto(url)
