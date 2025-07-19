@@ -6,6 +6,8 @@ import logging
 import json
 from datetime import datetime
 import tempfile
+from pytube import YouTube
+from playwright.sync_api import sync_playwright
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -19,6 +21,8 @@ COOKIE_PATHS = {
     'youtube': 'cookies/youtube_cookies.txt',
     'facebook': 'cookies/facebook_cookies.txt',
 }
+
+INSTAGRAM_PLAYWRIGHT_SESSION = 'cookies/instagram_playwright_session.json'
 
 logging.basicConfig(level=logging.INFO)
 
@@ -52,6 +56,9 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+INSTALOADER_SESSION_USER = 'YOUR_INSTAGRAM_USERNAME'  # <-- Replace with your Instagram username
+INSTALOADER_SESSION_FILE = 'cookies/instagram_session'  # <-- Place your Instaloader session file here
+
 @app.route('/get-formats', methods=['POST'])
 def get_formats():
     data = request.json if request.is_json else {}
@@ -60,7 +67,38 @@ def get_formats():
     if not url or not platform:
         return jsonify({'error': 'Missing url or platform'}), 400
     try:
-        if platform in ['youtube', 'facebook']:
+        if platform == 'youtube':
+            yt = YouTube(url)
+            formats = []
+            for stream in yt.streams.filter(progressive=True):
+                formats.append({
+                    'format_id': stream.itag,
+                    'ext': stream.subtype,
+                    'resolution': stream.resolution,
+                    'acodec': 'yes' if stream.includes_audio_track else 'no',
+                    'vcodec': 'yes' if stream.includes_video_track else 'no',
+                    'filesize': stream.filesize,
+                    'format_note': 'progressive',
+                })
+            for stream in yt.streams.filter(only_audio=True):
+                formats.append({
+                    'format_id': stream.itag,
+                    'ext': stream.subtype,
+                    'resolution': '-',
+                    'acodec': 'yes',
+                    'vcodec': 'no',
+                    'filesize': stream.filesize,
+                    'format_note': 'audio only',
+                })
+            return jsonify({
+                'title': yt.title,
+                'thumbnail': yt.thumbnail_url,
+                'formats': formats,
+                'duration': yt.length,
+                'uploader': yt.author,
+                'webpage_url': url,
+            })
+        elif platform == 'facebook':
             ydl_opts = {
                 'quiet': True,
                 'skip_download': True,
@@ -99,40 +137,46 @@ def get_formats():
                 'webpage_url': info.get('webpage_url') if isinstance(info, dict) else None,
             })
         elif platform == 'instagram':
-            shortcode = url.strip('/').split('/')[-1]
-            L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
-            session_file = 'cookies/instagram_cookies.txt'
-            if os.path.exists(session_file):
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
+                page = context.new_page()
+                page.goto(url)
+                page.wait_for_load_state('networkidle')
+                # Try to find video element
                 try:
-                    with open(session_file, 'r') as f:
-                        for line in f:
-                            if 'ds_user_id' in line:
-                                username = line.strip().split('\t')[-1]
-                                break
-                        else:
-                            username = None
-                    if username:
-                        L.load_session_from_file(username, session_file)
+                    video = page.query_selector('video')
+                    video_url = video.get_attribute('src') if video else None
                 except Exception:
-                    pass
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
-            video_url = getattr(post, 'video_url', None)
-            video_height = getattr(post, 'video_height', None)
-            video_duration = getattr(post, 'video_duration', None)
+                    video_url = None
+                # Try to get thumbnail and title
+                try:
+                    thumbnail = page.query_selector('meta[property="og:image"]')
+                    thumbnail_url = thumbnail.get_attribute('content') if thumbnail else None
+                except Exception:
+                    thumbnail_url = None
+                try:
+                    title = page.query_selector('meta[property="og:title"]')
+                    title_text = title.get_attribute('content') if title else 'Instagram Reel'
+                except Exception:
+                    title_text = 'Instagram Reel'
+                browser.close()
+            if not video_url:
+                return jsonify({'error': 'Could not extract video URL from Instagram.'}), 400
             return jsonify({
-                'title': getattr(post, 'title', None) or 'Instagram Reel',
-                'thumbnail': getattr(post, 'url', None),
+                'title': title_text,
+                'thumbnail': thumbnail_url,
                 'formats': [{
                     'format_id': 'default',
                     'ext': 'mp4',
-                    'resolution': f'{video_height}p' if video_height else '-',
+                    'resolution': '-',
                     'acodec': 'unknown',
                     'vcodec': 'unknown',
-                    'filesize': getattr(post, 'video_view_count', None),
+                    'filesize': None,
                     'format_note': 'Instagram default',
                 }],
-                'duration': video_duration,
-                'uploader': getattr(post, 'owner_username', None),
+                'duration': None,
+                'uploader': None,
                 'webpage_url': url,
                 'video_url': video_url,
             })
@@ -150,28 +194,34 @@ def download():
     if not url or not platform or not format_id:
         return 'Missing parameters', 400
     try:
-        if platform in ['youtube', 'facebook']:
-            # Validate format_id
-            available_format_ids = session.get('available_formats', [])
-            if format_id != 'mp3' and format_id not in available_format_ids:
+        if platform == 'youtube':
+            yt = YouTube(url)
+            stream = yt.streams.get_by_itag(int(format_id))
+            if not stream:
                 return f'Error: Requested format {format_id} is not available for this video.', 400
+            file_path = stream.download(output_path='downloads')
+            file_name = os.path.basename(file_path)
+            def generate():
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+                os.remove(file_path)
+            return Response(generate(), mimetype='application/octet-stream', headers={
+                'Content-Disposition': f'attachment; filename="{file_name}"'
+            })
+        elif platform == 'facebook':
             ydl_opts = {
-                'format': 'bestaudio/best' if format_id == 'mp3' else format_id,
-                'outtmpl': 'downloads/%(id)s.%(ext)s',
                 'quiet': True,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
+                'skip_download': True,
+                'forcejson': True,
+                'extract_flat': False,
             }
             cookie_path = COOKIE_PATHS.get(platform, '')
             if cookie_path and os.path.exists(cookie_path):
                 ydl_opts['cookiefile'] = cookie_path  # type: ignore
-            if format_id == 'mp3':
-                ydl_opts['postprocessors'] = [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                }]
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 ext = 'mp3' if format_id == 'mp3' else (info['ext'] if isinstance(info, dict) and 'ext' in info else 'mp4')
@@ -189,29 +239,24 @@ def download():
                 'Content-Disposition': f'attachment; filename="{file_id}.{ext}"'
             })
         elif platform == 'instagram':
-            shortcode = url.strip('/').split('/')[-1]
-            L = instaloader.Instaloader(dirname_pattern='downloads', save_metadata=False)
-            session_file = 'cookies/instagram_cookies.txt'
-            if os.path.exists(session_file):
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(storage_state=INSTAGRAM_PLAYWRIGHT_SESSION)
+                page = context.new_page()
+                page.goto(url)
+                page.wait_for_load_state('networkidle')
                 try:
-                    with open(session_file, 'r') as f:
-                        for line in f:
-                            if 'ds_user_id' in line:
-                                username = line.strip().split('\t')[-1]
-                                break
-                        else:
-                            username = None
-                    if username:
-                        L.load_session_from_file(username, session_file)
+                    video = page.query_selector('video')
+                    video_url = video.get_attribute('src') if video else None
                 except Exception:
-                    pass
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
-            video_url = getattr(post, 'video_url', None)
+                    video_url = None
+                browser.close()
             if not video_url:
                 return 'Video URL not found', 404
             import requests
             r = requests.get(video_url, stream=True)
             ext = 'mp4'
+            import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
@@ -231,7 +276,7 @@ def download():
                             yield chunk
                     os.remove(mp3_path)
                 return Response(generate(), mimetype='audio/mpeg', headers={
-                    'Content-Disposition': f'attachment; filename="{shortcode}.mp3"'
+                    'Content-Disposition': f'attachment; filename="instagram_reel.mp3"'
                 })
             else:
                 def generate():
@@ -243,7 +288,7 @@ def download():
                             yield chunk
                     os.remove(tmp_path)
                 return Response(generate(), mimetype='video/mp4', headers={
-                    'Content-Disposition': f'attachment; filename="{shortcode}.mp4"'
+                    'Content-Disposition': f'attachment; filename="instagram_reel.mp4"'
                 })
         else:
             return 'Unsupported platform', 400

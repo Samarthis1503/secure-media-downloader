@@ -1,6 +1,7 @@
 Flask
-yt-dlp
 instaloader
 requests
 selenium
 playwright
+pytube
+selenium
