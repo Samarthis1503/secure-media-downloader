@@ -1,1 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard - Session Monitor</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
+        h1 { text-align: center; color: #333; }
+        .platform { background: white; padding: 20px; margin: 10px auto; width: 400px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .expired { color: red; }
+        .active { color: green; }
+        button { padding: 8px 12px; margin-top: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>Session Monitor - Admin Panel</h1>
+    <div id="sessions-container"></div>
 
+    <script>
+        async function fetchStatus() {
+            const res = await fetch('/status.json');
+            const data = await res.json();
+            const container = document.getElementById('sessions-container');
+            container.innerHTML = '';
+            const now = Math.floor(Date.now() / 1000);
+
+            for (const [platform, info] of Object.entries(data)) {
+                const expTime = info.expiry;
+                const isExpired = expTime < now;
+                const remaining = isExpired ? "Expired" : (expTime - now) + " seconds";
+                const div = document.createElement('div');
+                div.className = 'platform';
+                div.innerHTML = `
+                    <h3>${platform.toUpperCase()}</h3>
+                    <p>Status: <span class="${isExpired ? 'expired' : 'active'}">${isExpired ? 'Expired' : 'Active'}</span></p>
+                    <p>Remaining Time: ${remaining}</p>
+                    <button onclick="location.href='/${platform}-login'">${isExpired ? 'Login Again' : 'Refresh Login'}</button>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        fetchStatus();
+        setInterval(fetchStatus, 5000);
+    </script>
+</body>
+</html>
