@@ -1,8 +1,0 @@
-Flask
-yt_dlp
-instaloader
-requests
-selenium
-playwright
-pytube
-selenium
